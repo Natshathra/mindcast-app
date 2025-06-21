@@ -30,6 +30,16 @@ const buttonVariants = cva(
       variant: "default",
       size: "default",
     },
+
+    import React from "react"
+export const Button = React.forwardRef<HTMLButtonElement, any>(
+  ({ className, children, ...props }, ref) => (
+    <button ref={ref} className={`px-4 py-2 rounded ${className}`} {...props}>
+      {children}
+    </button>
+  )
+)
+
   }
 )
 
