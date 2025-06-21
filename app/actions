@@ -1,0 +1,106 @@
+"use server"
+
+import { generateText } from "ai"
+import { openai } from "@ai-sdk/openai"
+
+const OPENAI_KEY = process.env.OPENAI_API_KEY
+
+interface PodcastResult {
+  mood: string
+  confidence: number
+  content: string
+}
+
+export async function generatePodcast(transcript: string): Promise<PodcastResult> {
+  // ---------- 1) USE OPENAI WHEN KEY IS PRESENT ----------
+  if (OPENAI_KEY) {
+    try {
+      /* --- OpenAI mood analysis --- */
+      const moodAnalysis = await generateText({
+        model: openai("gpt-4o", { apiKey: OPENAI_KEY }),
+        system: `You are an expert emotional intelligence AI. Analyze the given text and determine the primary emotion/mood. 
+    
+    Respond with ONLY a JSON object in this exact format:
+    {
+      "mood": "one of: happy, sad, anxious, stressed, tired, hopeful, calm, frustrated, excited, overwhelmed",
+      "confidence": number between 0.1 and 1.0
+    }`,
+        prompt: `Analyze this text for emotional content: "${transcript}"`,
+      })
+
+      let moodData: { mood: string; confidence: number }
+      try {
+        moodData = JSON.parse(moodAnalysis.text)
+      } catch {
+        moodData = { mood: "calm", confidence: 0.7 }
+      }
+
+      /* --- OpenAI podcast generation --- */
+      const podcastContent = await generateText({
+        model: openai("gpt-4o", { apiKey: OPENAI_KEY }),
+        system: `You are a compassionate AI wellness coach and podcast host. Create a personalized, soothing 2-3 minute podcast script based on the user's detected mood. 
+
+    Guidelines:
+    - Speak directly to the user in a warm, empathetic tone
+    - Acknowledge their feelings without judgment
+    - Provide gentle guidance, breathing exercises, or positive affirmations
+    - Include practical tips for their specific emotional state
+    - End with encouragement and hope
+    - Write as if you're speaking directly to them (use "you")
+    - Keep it conversational and natural
+    - No markdown formatting, just plain text for speech synthesis`,
+        prompt: `The user is feeling ${moodData.mood} (confidence: ${moodData.confidence}). 
+    
+    Their original words: "${transcript}"
+    
+    Create a personalized podcast script that addresses their specific emotional state with empathy and practical guidance.`,
+      })
+
+      return {
+        mood: moodData.mood,
+        confidence: moodData.confidence,
+        content: podcastContent.text,
+      }
+    } catch (error) {
+      console.error("OpenAI error – falling back locally:", error)
+      /* Fall through to local fallback */
+    }
+  }
+
+  // ---------- 2) LOCAL FALLBACK (no key or OpenAI error) ----------
+  const guess = simpleHeuristic(transcript)
+  return {
+    mood: guess.mood,
+    confidence: guess.confidence,
+    content: localScript(guess.mood),
+  }
+}
+
+/* ---------- helpers ---------- */
+
+function simpleHeuristic(text: string): { mood: string; confidence: number } {
+  const t = text.toLowerCase()
+  if (/(overwhelm|stress|stressed|pressure|busy)/.test(t)) return { mood: "stressed", confidence: 0.8 }
+  if (/(sad|down|depress|unhappy|hopeless)/.test(t)) return { mood: "sad", confidence: 0.8 }
+  if (/(anxious|anxiety|nervous|worried)/.test(t)) return { mood: "anxious", confidence: 0.8 }
+  if (/(tired|exhausted|sleepy|fatigue)/.test(t)) return { mood: "tired", confidence: 0.8 }
+  if (/(excited|happy|great|fantastic|good)/.test(t)) return { mood: "happy", confidence: 0.8 }
+  return { mood: "calm", confidence: 0.5 }
+}
+
+function localScript(mood: string): string {
+  switch (mood) {
+    case "stressed":
+      return `Let's take a mindful pause together. Close your eyes, inhale slowly for four seconds … (approx 2 min script)`
+    case "sad":
+      return `I hear that you're feeling down. Remember, emotions flow like waves …`
+    case "anxious":
+      return `Anxiety can feel overwhelming, but you're not alone. Try a box-breathing exercise with me …`
+    case "tired":
+      return `Exhaustion signals that your body needs care. Let's do a short body scan …`
+    case "happy":
+      return `It's wonderful to hear you're feeling good! Let's amplify that positivity …`
+    default:
+      return `Let's cultivate calm together. Find a comfortable position …`
+  }
+}
